@@ -51,6 +51,31 @@ const DEFAULT_ALLOWED_HOSTS = new Set([
   'unpkg.com'
 ]);
 
+function isSafeExternalHost(host: string): boolean {
+  if (!host || typeof host !== 'string') return false;
+  const lower = host.toLowerCase().trim();
+
+  // Disallow IP literals (IPv4 and IPv6)
+  if (/^(\d{1,3}\.){3}\d{1,3}$/.test(lower)) return false;
+  if (lower.includes(':') || lower.startsWith('[') || lower.endsWith(']')) return false;
+
+  // Disallow localhost and internal/local domain names
+  if (
+    lower === 'localhost' ||
+    lower.endsWith('.local') ||
+    lower.endsWith('.internal') ||
+    lower.endsWith('.localhost') ||
+    lower.endsWith('.lan') ||
+    lower.endsWith('.home') ||
+    lower.endsWith('.corp')
+  ) {
+    return false;
+  }
+
+  // Must be a valid domain name with at least one dot
+  return /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)+$/i.test(lower);
+}
+
 export async function loadManifest(
   env: Env,
   siteId: string,
@@ -87,13 +112,14 @@ export async function renderPage(
     throw new Error(`Site not found: manifest for site '${siteId}' does not exist.`);
   }
 
-  const ORIGIN = options.origin || 'https://webshot.local';
+  const ORIGIN = 'https://webshot.local';
   const blobs = new Map<string, ArrayBuffer>();
   const missing: string[] = [];
   const consoleEntries: ConsoleEntry[] = [];
   const errors: string[] = [];
 
-  const allowedHosts = new Set([...DEFAULT_ALLOWED_HOSTS, ...(options.allowedHosts || [])]);
+  const safeCustomHosts = (options.allowedHosts || []).filter(isSafeExternalHost);
+  const allowedHosts = new Set([...DEFAULT_ALLOWED_HOSTS, ...safeCustomHosts]);
 
   let browser: Browser | null = null;
   try {
@@ -140,7 +166,8 @@ export async function renderPage(
       }
 
       if (url.origin !== ORIGIN) {
-        if (allowedHosts.has(url.host)) {
+        // Enforce HTTPS only and check against sanitized allowed hosts (prevents SSRF to internal/IP endpoints)
+        if (url.protocol === 'https:' && allowedHosts.has(url.host)) {
           return req.continue();
         }
         return req.abort();
@@ -201,15 +228,17 @@ export async function renderPage(
       timeout: 25000
     });
 
-    // Optional waitFor
+    // Optional waitFor (clamped to max 10s to prevent resource exhaustion)
     const waitFor = options.waitFor;
     if (waitFor) {
       if (typeof waitFor === 'number') {
-        await new Promise((resolve) => setTimeout(resolve, waitFor));
+        const delay = Math.min(Math.max(0, waitFor), 10000);
+        await new Promise((resolve) => setTimeout(resolve, delay));
       } else if (typeof waitFor === 'string') {
         const numeric = Number(waitFor);
         if (!isNaN(numeric) && waitFor.trim() !== '') {
-          await new Promise((resolve) => setTimeout(resolve, numeric));
+          const delay = Math.min(Math.max(0, numeric), 10000);
+          await new Promise((resolve) => setTimeout(resolve, delay));
         } else {
           await page.waitForSelector(waitFor, { timeout: 10000 });
         }

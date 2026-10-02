@@ -8,7 +8,6 @@ Deployed to Cloudflare Workers with Browser Rendering, R2 content-addressed stor
 
 - **Endpoint**: `https://webshot-mcp.bookis.workers.dev`
 - **Transport**: Streamable HTTP / Server-Sent Events (MCP specification)
-- **Account**: `bookis@worthysoftware.co`
 
 ---
 

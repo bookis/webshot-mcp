@@ -133,6 +133,16 @@ export async function handleSyncBlob(request: Request, env: Env, rawHash: string
     });
   }
 
+  const MAX_BLOB_SIZE = 25 * 1024 * 1024; // 25 MB max per blob
+
+  const contentLength = Number(request.headers.get('content-length'));
+  if (!isNaN(contentLength) && contentLength > MAX_BLOB_SIZE) {
+    return new Response(JSON.stringify({ error: 'Payload exceeds maximum size limit of 25MB' }), {
+      status: 413,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
   let dataStream: ReadableStream = request.body;
   const contentEncoding = request.headers.get('content-encoding')?.toLowerCase();
 
@@ -141,6 +151,13 @@ export async function handleSyncBlob(request: Request, env: Env, rawHash: string
   }
 
   const responseBytes = await new Response(dataStream).arrayBuffer();
+
+  if (responseBytes.byteLength > MAX_BLOB_SIZE) {
+    return new Response(JSON.stringify({ error: 'Decompressed payload exceeds maximum size limit of 25MB' }), {
+      status: 413,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
 
   // Verify hash
   const computedBuffer = await crypto.subtle.digest('SHA-256', responseBytes);

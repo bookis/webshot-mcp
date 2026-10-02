@@ -4,7 +4,7 @@ import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/
 import { Env, renderPage } from './render.js';
 import { registerTools } from './tools.js';
 import { handleSyncPlan, handleSyncBlob, handleSyncCommit } from './sync.js';
-import { authenticate, signJwt } from './auth.js';
+import { authenticate, signJwt, getJwtSecret } from './auth.js';
 
 export { Env };
 
@@ -75,7 +75,7 @@ export default {
         iat: now,
         exp: now + (365 * 24 * 60 * 60),
         name: body.name || undefined
-      }, env.JWT_SECRET);
+      }, getJwtSecret(env));
 
       return withCors(new Response(JSON.stringify({
         success: true,
@@ -134,8 +134,7 @@ export default {
       try {
         const siteId = url.searchParams.get('site') || 'test-site';
         const path = url.searchParams.get('path') || '/';
-        const originParam = url.searchParams.get('origin') || undefined;
-        const result = await renderPage(env, siteId, path, { origin: originParam, userId }, userId);
+        const result = await renderPage(env, siteId, path, { userId }, userId);
         return withCors(new Response(JSON.stringify({
           success: true,
           userId,
@@ -152,8 +151,7 @@ export default {
       } catch (err) {
         return withCors(new Response(JSON.stringify({
           success: false,
-          error: (err as Error).message,
-          stack: (err as Error).stack
+          error: (err as Error).message
         }, null, 2), {
           status: 500,
           headers: { 'Content-Type': 'application/json' }
@@ -169,8 +167,7 @@ export default {
       try {
         const siteId = url.searchParams.get('site') || 'test-site';
         const path = url.searchParams.get('path') || '/';
-        const originParam = url.searchParams.get('origin') || undefined;
-        const result = await renderPage(env, siteId, path, { origin: originParam, userId }, userId);
+        const result = await renderPage(env, siteId, path, { userId }, userId);
         if (!result.screenshot) {
           return withCors(new Response('No screenshot generated', { status: 500 }));
         }

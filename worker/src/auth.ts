@@ -119,6 +119,15 @@ export function extractToken(request: Request): string | null {
   return null;
 }
 
+export function getJwtSecret(env: Env): string {
+  if (env.JWT_SECRET) {
+    return env.JWT_SECRET;
+  }
+  // Warn in logs if running with insecure default secret
+  console.warn('[auth] SECURITY WARNING: JWT_SECRET is not configured. Set a production secret with: wrangler secret put JWT_SECRET');
+  return DEFAULT_SECRET;
+}
+
 /**
  * Authenticates the request and extracts the scoped userId.
  * Supports:
@@ -131,7 +140,7 @@ export async function authenticate(
   env: Env
 ): Promise<{ userId: string } | Response> {
   const token = extractToken(request);
-  const jwtSecret = env.JWT_SECRET || DEFAULT_SECRET;
+  const jwtSecret = getJwtSecret(env);
 
   // 1. If token is provided, attempt JWT verification
   if (token) {

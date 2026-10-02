@@ -100,6 +100,100 @@ export async function loadManifest(
   }
 }
 
+/**
+ * Triggers lazy-loaded images, scrolls through document to fire IntersectionObservers,
+ * and awaits image decoding so images do not render as blank boxes in full-page captures.
+ */
+async function preparePageForScreenshot(page: Page): Promise<void> {
+  try {
+    await page.evaluate(async () => {
+      const doc = (globalThis as any).document;
+      const win = (globalThis as any).window;
+      if (!doc || !win) return;
+
+      // 1. Force native lazy elements to eager loading
+      const lazyImages = doc.querySelectorAll('img[loading="lazy"]');
+      for (const img of lazyImages) {
+        img.loading = 'eager';
+        img.setAttribute('loading', 'eager');
+      }
+      const lazyIframes = doc.querySelectorAll('iframe[loading="lazy"]');
+      for (const iframe of lazyIframes) {
+        iframe.loading = 'eager';
+        iframe.setAttribute('loading', 'eager');
+      }
+
+      // 2. Trigger data-src / data-srcset attributes used by popular lazy-load libraries
+      const dataSrcImages = doc.querySelectorAll('img[data-src], img[data-srcset]');
+      for (const img of dataSrcImages) {
+        if (img.dataset.src && !img.src) img.src = img.dataset.src;
+        if (img.dataset.srcset && !img.srcset) img.srcset = img.dataset.srcset;
+      }
+
+      // 3. Auto-scroll through the entire document to trigger IntersectionObservers
+      await new Promise<void>((resolve) => {
+        const scrollHeight = Math.max(
+          doc.body?.scrollHeight || 0,
+          doc.documentElement?.scrollHeight || 0,
+          win.innerHeight || 0
+        );
+
+        if (scrollHeight <= (win.innerHeight || 0)) {
+          resolve();
+          return;
+        }
+
+        let currentScroll = 0;
+        const step = Math.max(300, Math.floor((win.innerHeight || 800) / 2));
+        const timer = setInterval(() => {
+          currentScroll += step;
+          win.scrollTo(0, currentScroll);
+
+          if (currentScroll >= scrollHeight) {
+            clearInterval(timer);
+            win.scrollTo(0, 0);
+            resolve();
+          }
+        }, 40);
+
+        // Safety timeout so slow or infinite-scrolling pages do not hang
+        setTimeout(() => {
+          clearInterval(timer);
+          win.scrollTo(0, 0);
+          resolve();
+        }, 2500);
+      });
+
+      // 4. Wait for all images in the document to finish loading and decoding
+      const images: any[] = Array.from(doc.images || []);
+      await Promise.all(
+        images.map((img) => {
+          if (img.complete && img.naturalWidth > 0) {
+            return typeof img.decode === 'function' ? img.decode().catch(() => {}) : Promise.resolve();
+          }
+          return new Promise<void>((resolveImage) => {
+            const finish = () => {
+              if (typeof img.decode === 'function') {
+                img.decode().catch(() => {}).then(() => resolveImage());
+              } else {
+                resolveImage();
+              }
+            };
+            img.addEventListener('load', finish, { once: true });
+            img.addEventListener('error', () => resolveImage(), { once: true });
+            setTimeout(resolveImage, 2000);
+          });
+        })
+      );
+    });
+
+    // 5. Brief stabilization delay for layout reflow after scroll-to-top
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  } catch {
+    // If evaluation fails (e.g. non-HTML document), proceed without error
+  }
+}
+
 export async function renderPage(
   env: Env,
   siteId: string,
@@ -244,6 +338,9 @@ export async function renderPage(
         }
       }
     }
+
+    // Trigger lazy loading, scroll-through for IntersectionObservers, and image decoding
+    await preparePageForScreenshot(page);
 
     const pageTitle = await page.title();
     let isSecureContext: boolean | undefined;

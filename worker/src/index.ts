@@ -8,6 +8,17 @@ import { authenticate, signJwt, getJwtSecret } from './auth.js';
 
 export { Env };
 
+export const SERVER_INSTRUCTIONS = `webshot captures screenshots of local and unreleased web applications without requiring a local browser, Playwright, or public hosting.
+
+Workflow for AI agents:
+1. When asked to inspect, verify, or screenshot a local web project, first ensure the project is built (e.g. \`npm run build\` or the framework's build command).
+2. Run \`npx webshot sync <distDir>\` in your terminal (for example: \`npx webshot sync ./dist\`, \`npx webshot sync ./build\`, or \`npx webshot sync ./out\`).
+   - You can assign a custom readable site ID with \`--site <siteId>\` (e.g., \`npx webshot sync ./dist --site my-app\`).
+   - The CLI uploads the files to content-addressed storage and prints the siteId.
+3. Call the \`list_sites\` tool to view all synced sites for your account.
+4. Call \`list_pages\` with the siteId to discover navigable routes (e.g. \`/\`, \`/about\`).
+5. Call \`screenshot\` with the siteId and path to capture the rendered page, inspect console output, and detect missing assets.`;
+
 /**
  * Durable Object implementation of WebshotMcpAgent
  * Inherits stateful features and lifecycle management from Agent
@@ -16,6 +27,8 @@ export class WebshotMcpAgent extends Agent<Env> {
   server = new McpServer({
     name: 'webshot-mcp',
     version: '0.1.0'
+  }, {
+    instructions: SERVER_INSTRUCTIONS
   });
 
   async init() {
@@ -230,6 +243,8 @@ export default {
       const server = new McpServer({
         name: 'webshot-mcp',
         version: '0.1.0'
+      }, {
+        instructions: SERVER_INSTRUCTIONS
       });
       registerTools(server, env, userId);
 

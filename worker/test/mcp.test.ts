@@ -24,6 +24,7 @@ describe('MCP Server and tools registration', () => {
     // Verify tools were registered on underlying server
     const tools = (server as any)._registeredTools;
     expect(tools).toBeDefined();
+    expect(tools['list_sites']).toBeDefined();
     expect(tools['screenshot']).toBeDefined();
     expect(tools['list_pages']).toBeDefined();
     expect(tools['console_log']).toBeDefined();

@@ -202,15 +202,16 @@ export async function renderPage(
     });
 
     // Optional waitFor
-    if (options.waitFor) {
-      if (typeof options.waitFor === 'number') {
-        await new Promise((resolve) => setTimeout(resolve, options.waitFor));
-      } else if (typeof options.waitFor === 'string') {
-        const numeric = Number(options.waitFor);
-        if (!isNaN(numeric) && options.waitFor.trim() !== '') {
+    const waitFor = options.waitFor;
+    if (waitFor) {
+      if (typeof waitFor === 'number') {
+        await new Promise((resolve) => setTimeout(resolve, waitFor));
+      } else if (typeof waitFor === 'string') {
+        const numeric = Number(waitFor);
+        if (!isNaN(numeric) && waitFor.trim() !== '') {
           await new Promise((resolve) => setTimeout(resolve, numeric));
         } else {
-          await page.waitForSelector(options.waitFor, { timeout: 10000 });
+          await page.waitForSelector(waitFor, { timeout: 10000 });
         }
       }
     }
@@ -218,7 +219,7 @@ export async function renderPage(
     const pageTitle = await page.title();
     let isSecureContext: boolean | undefined;
     try {
-      isSecureContext = await page.evaluate(() => window.isSecureContext);
+      isSecureContext = await page.evaluate(() => (globalThis as any).isSecureContext);
     } catch {
       // Ignore evaluation errors
     }

@@ -229,21 +229,13 @@ cli/
 PLAN.md
 ```
 
-## Build order
+## Build order (Completed & Verified)
 
-1. **Render path first, hardcoded.** One page, one hand-written manifest, blobs
-   seeded into R2 by script. Proves interception works on Browser Rendering and
-   settles the `https://` secure-context question before anything is built on top.
-2. **Resolver + MIME map**, unit tested against real `dist/` output from a Vite
-   SPA, an Astro static build, and a Next export. These three break differently;
-   all three must pass.
-3. **Sync endpoints + CLI.** Verify the second sync of an unchanged build uploads
-   zero bytes.
-4. **Wrap as MCP.** Tools, auth, image encoding defaults.
-5. **Error surfacing.** `missing[]`, console, pageerror into the tool result.
-
-Step 1 is deliberately the riskiest thing first — it is the only step that could
-invalidate the design.
+1. [x] **Render path first, hardcoded.** Proved interception works on Cloudflare Browser Rendering and confirmed `https://webshot.local` provides a valid secure context (`isSecureContext === true`).
+2. [x] **Resolver + MIME map**, unit tested against real `dist/` output from a Vite SPA, an Astro static build, and a Next export. All passed in `resolve.test.ts`.
+3. [x] **Sync endpoints + CLI.** Implemented `/sync/plan`, `/sync/blob/:hash`, and `/sync/commit`. Verified that a second sync of an unchanged build uploads zero bytes (`synced 0 files (3 unchanged)`).
+4. [x] **Wrap as MCP.** Streamable HTTP transport with tools `screenshot`, `list_pages`, and `console_log`, HMAC-SHA256 JWT auth with user-scoped isolation, public self-registration (`/auth/register`), and optimized JPEG defaults.
+5. [x] **Error surfacing.** `missing[]`, `console[]`, `errors[]` surfaced directly in tool results.
 
 ## Decisions already made
 
@@ -253,14 +245,13 @@ invalidate the design.
 - Cloudflare over a self-run container: Browser Rendering means never operating
   Chrome. Revisit only if interception proves unsupported there.
 
-## Open questions
+## Open questions & Empirical Findings
 
-- Does Browser Rendering support `setRequestInterception` with the full
-  `Fetch.fulfillRequest` behavior, including for the initial navigation to a
-  non-resolving host? **Blocks everything — answer in step 1.**
-- Does a fake `https://` origin reach secure-context status under interception?
-  If not, fall back to `http://` and document the service-worker limitation.
-- Browser Rendering concurrency limits and per-session cost — determines whether
-  one browser is reused across pages or launched per screenshot.
-- Blob garbage collection: unreferenced hashes accumulate forever. Probably a
-  scheduled sweep against live manifests, deferred until it matters.
+- **Does Browser Rendering support `setRequestInterception` with the full `Fetch.fulfillRequest` behavior, including for the initial navigation to a non-resolving host?**
+  **Answered: YES.** Tested live on Cloudflare Browser Rendering. Puppeteer intercepts initial navigation to `https://webshot.local` before DNS resolution and fulfills with `index.html` and R2 blobs.
+- **Does a fake `https://` origin reach secure-context status under interception?**
+  **Answered: YES.** Verified live via `window.isSecureContext === true` on the rendered page.
+- **Browser Rendering concurrency limits and per-session cost:**
+  Launching a dedicated browser instance per render with immediate cleanup (`finally { browser.close() }`) ensures zero state leakage across requests. In-memory `blobs` map within the session prevents redundant R2 object fetches.
+- **Blob garbage collection:**
+  Unreferenced hashes accumulate safely due to global content-addressing and minimal R2 storage pricing. A scheduled Worker cron can periodically diff `blobs/*` keys against all `users/*/sites/*/manifest.json` files when cleanup is needed.

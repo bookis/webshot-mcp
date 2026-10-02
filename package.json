@@ -1,0 +1,12 @@
+{
+  "name": "webshot-mcp-workspace",
+  "private": true,
+  "workspaces": [
+    "worker",
+    "cli"
+  ],
+  "scripts": {
+    "test": "npm run test --workspace=worker",
+    "deploy": "npm run deploy --workspace=worker"
+  }
+}

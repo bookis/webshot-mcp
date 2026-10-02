@@ -1,0 +1,37 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "webshot-mcp",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-02-24",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "browser": {
+    "binding": "BROWSER"
+  },
+  "r2_buckets": [
+    {
+      "binding": "BLOBS",
+      "bucket_name": "webshot-blobs"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "MCP",
+        "class_name": "WebshotMcpAgent"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "WebshotMcpAgent"
+      ]
+    }
+  ],
+  "observability": {
+    "enabled": true
+  }
+}

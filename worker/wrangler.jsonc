@@ -6,6 +6,13 @@
   "compatibility_flags": [
     "nodejs_compat"
   ],
+  "workers_dev": true,
+  "routes": [
+    {
+      "pattern": "webshot.app",
+      "custom_domain": true
+    }
+  ],
   "browser": {
     "binding": "BROWSER"
   },

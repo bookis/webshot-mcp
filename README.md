@@ -6,7 +6,7 @@ Deployed to Cloudflare Workers with Browser Rendering, R2 content-addressed stor
 
 ## Live Deployment
 
-- **Endpoint**: `https://webshot-mcp.bookis.workers.dev`
+- **Endpoint**: `https://webshot.app`
 - **Transport**: Streamable HTTP / Server-Sent Events (MCP specification)
 
 ---
@@ -54,7 +54,7 @@ node ./cli/bin/webshot.mjs sync ./dist
 
 ### Via HTTP API:
 ```bash
-curl -X POST https://webshot-mcp.bookis.workers.dev/auth/register \
+curl -X POST https://webshot.app/auth/register \
   -H "Content-Type: application/json" \
   -d '{"name": "Alice"}'
 ```
@@ -65,7 +65,7 @@ Response:
   "success": true,
   "userId": "usr_b836f1f4584c4841",
   "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6...",
-  "endpoint": "https://webshot-mcp.bookis.workers.dev"
+  "endpoint": "https://webshot.app"
 }
 ```
 
@@ -99,7 +99,7 @@ node ./cli/bin/webshot.mjs sync ./dist --site my-site --token <token>
 ```
 
 ### Environment Variables
-- `WEBSHOT_ENDPOINT`: Default server URL (defaults to `https://webshot-mcp.bookis.workers.dev`).
+- `WEBSHOT_ENDPOINT`: Default server URL (defaults to `https://webshot.app`).
 - `WEBSHOT_SITE`: Custom stable site ID.
 - `WEBSHOT_TOKEN`: Bearer token / JWT (overrides `~/.webshot/config.json`).
 
@@ -115,7 +115,7 @@ Configure your client to include your scoped token:
 {
   "mcpServers": {
     "webshot": {
-      "url": "https://webshot-mcp.bookis.workers.dev/?token=YOUR_JWT_TOKEN",
+      "url": "https://webshot.app/?token=YOUR_JWT_TOKEN",
       "transport": "streamable-http"
     }
   }
@@ -127,7 +127,7 @@ Or pass via headers:
 {
   "mcpServers": {
     "webshot": {
-      "url": "https://webshot-mcp.bookis.workers.dev",
+      "url": "https://webshot.app",
       "transport": "streamable-http",
       "headers": {
         "Authorization": "Bearer YOUR_JWT_TOKEN"

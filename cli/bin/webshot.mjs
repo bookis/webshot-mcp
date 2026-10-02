@@ -51,7 +51,7 @@ Commands:
 
 Options:
   --site <siteId>       Stable site ID (default: hash of git root or current dir)
-  --endpoint <url>      webshot-mcp server endpoint (default: env WEBSHOT_ENDPOINT or https://webshot-mcp.bookis.workers.dev)
+  --endpoint <url>      webshot-mcp server endpoint (default: env WEBSHOT_ENDPOINT or https://webshot.app)
   --token <token>       Bearer auth token / JWT (default: env WEBSHOT_TOKEN or ~/.webshot/config.json)
   -h, --help            Show this help message
 `);
@@ -148,7 +148,7 @@ async function main() {
   const command = args[0];
   const userConfig = loadConfig();
 
-  let endpoint = process.env.WEBSHOT_ENDPOINT || userConfig.endpoint || 'https://webshot-mcp.bookis.workers.dev';
+  let endpoint = process.env.WEBSHOT_ENDPOINT || userConfig.endpoint || 'https://webshot.app';
   let token = process.env.WEBSHOT_TOKEN || userConfig.token || null;
   let siteId = process.env.WEBSHOT_SITE || null;
   let distDir = null;

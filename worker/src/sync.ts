@@ -167,12 +167,11 @@ export async function handleSyncBlob(request: Request, env: Env, rawHash: string
   });
 }
 
-/**
- * POST /sync/commit
- * Body: { siteId: string, manifest: Record<string, string> }
- * Writes sites/<siteId>/manifest.json in R2
- */
-export async function handleSyncCommit(request: Request, env: Env): Promise<Response> {
+export async function handleSyncCommit(
+  request: Request,
+  env: Env,
+  userId: string = 'default'
+): Promise<Response> {
   let body: any;
   try {
     body = await request.json();
@@ -201,18 +200,28 @@ export async function handleSyncCommit(request: Request, env: Env): Promise<Resp
   }
 
   const manifest = body.manifest as Record<string, string>;
-
-  // Save manifest
   const manifestJson = JSON.stringify(manifest);
-  await env.BLOBS.put(`sites/${siteId}/manifest.json`, manifestJson, {
+
+  // Write user-scoped manifest
+  await env.BLOBS.put(`users/${userId}/sites/${siteId}/manifest.json`, manifestJson, {
     httpMetadata: {
       contentType: 'application/json; charset=utf-8'
     }
   });
 
+  // Also write legacy location for default/admin
+  if (userId === 'default' || userId === 'admin') {
+    await env.BLOBS.put(`sites/${siteId}/manifest.json`, manifestJson, {
+      httpMetadata: {
+        contentType: 'application/json; charset=utf-8'
+      }
+    });
+  }
+
   return new Response(JSON.stringify({
     success: true,
     siteId,
+    userId,
     fileCount: Object.keys(manifest).length
   }), {
     status: 200,

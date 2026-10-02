@@ -2,19 +2,57 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import crypto from 'node:crypto';
 import zlib from 'node:zlib';
+
+function getConfigPath() {
+  const configDir = path.join(os.homedir(), '.webshot');
+  return {
+    dir: configDir,
+    file: path.join(configDir, 'config.json')
+  };
+}
+
+function loadConfig() {
+  try {
+    const { file } = getConfigPath();
+    if (fs.existsSync(file)) {
+      return JSON.parse(fs.readFileSync(file, 'utf-8'));
+    }
+  } catch {
+    // Ignore read errors
+  }
+  return {};
+}
+
+function saveConfig(config) {
+  try {
+    const { dir, file } = getConfigPath();
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(file, JSON.stringify(config, null, 2), { mode: 0o600 });
+  } catch (err) {
+    console.warn(`[webshot] Warning: Could not save credentials to config file: ${err.message}`);
+  }
+}
 
 function printHelp() {
   console.log(`webshot - upload local static builds to webshot-mcp
 
 Usage:
   webshot sync <distDir> [options]
+  webshot register [options]
+
+Commands:
+  sync <distDir>        Sync a built static directory (Vite, Astro, Next.js, etc.)
+  register              Register a new public user and obtain a scoped JWT
 
 Options:
   --site <siteId>       Stable site ID (default: hash of git root or current dir)
   --endpoint <url>      webshot-mcp server endpoint (default: env WEBSHOT_ENDPOINT or https://webshot-mcp.bookis.workers.dev)
-  --token <token>       Bearer auth token (default: env WEBSHOT_TOKEN)
+  --token <token>       Bearer auth token / JWT (default: env WEBSHOT_TOKEN or ~/.webshot/config.json)
   -h, --help            Show this help message
 `);
 }
@@ -59,7 +97,6 @@ function walkDir(dir, baseDir = dir) {
   return results;
 }
 
-// Concurrency pool helper for 8-way parallel execution
 async function runPool(items, limit, fn) {
   const executing = new Set();
   const results = [];
@@ -79,6 +116,28 @@ async function runPool(items, limit, fn) {
   return Promise.all(results);
 }
 
+async function registerUser(endpoint) {
+  const res = await fetch(`${endpoint}/auth/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ registeredAt: new Date().toISOString() })
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Registration failed (${res.status}): ${text}`);
+  }
+
+  const data = await res.json();
+  const saved = {
+    userId: data.userId,
+    token: data.token,
+    endpoint
+  };
+  saveConfig(saved);
+  return saved;
+}
+
 async function main() {
   const args = process.argv.slice(2);
   if (args.length === 0 || args.includes('-h') || args.includes('--help')) {
@@ -87,16 +146,12 @@ async function main() {
   }
 
   const command = args[0];
-  if (command !== 'sync') {
-    console.error(`Unknown command: ${command}`);
-    printHelp();
-    process.exit(1);
-  }
+  const userConfig = loadConfig();
 
-  let distDir = null;
+  let endpoint = process.env.WEBSHOT_ENDPOINT || userConfig.endpoint || 'https://webshot-mcp.bookis.workers.dev';
+  let token = process.env.WEBSHOT_TOKEN || userConfig.token || null;
   let siteId = process.env.WEBSHOT_SITE || null;
-  let endpoint = process.env.WEBSHOT_ENDPOINT || 'https://webshot-mcp.bookis.workers.dev';
-  let token = process.env.WEBSHOT_TOKEN || null;
+  let distDir = null;
 
   for (let i = 1; i < args.length; i++) {
     const arg = args[i];
@@ -111,9 +166,39 @@ async function main() {
     }
   }
 
-  if (!distDir) {
-    console.error('Error: <distDir> is required');
+  endpoint = endpoint.replace(/\/+$/, '');
+
+  // Command: register
+  if (command === 'register') {
+    const registered = await registerUser(endpoint);
+    console.log(`Registered user: ${registered.userId}`);
+    console.log(`Token saved to: ${getConfigPath().file}`);
+    console.log(`\nTo use with your MCP client, add:`);
+    console.log(`  "headers": { "Authorization": "Bearer ${registered.token}" }`);
+    console.log(`  or URL: ${endpoint}/?token=${registered.token}`);
+    process.exit(0);
+  }
+
+  if (command !== 'sync') {
+    console.error(`Unknown command: ${command}`);
+    printHelp();
     process.exit(1);
+  }
+
+  if (!distDir) {
+    console.error('Error: <distDir> is required (e.g. webshot sync ./dist)');
+    process.exit(1);
+  }
+
+  // Auto-register if no token is configured
+  if (!token) {
+    try {
+      const registered = await registerUser(endpoint);
+      token = registered.token;
+      console.log(`[webshot] Auto-registered public user: ${registered.userId}`);
+    } catch (err) {
+      // If server doesn't require auth, continue without token
+    }
   }
 
   const resolvedDist = path.resolve(process.cwd(), distDir);
@@ -125,8 +210,6 @@ async function main() {
   if (!siteId) {
     siteId = deriveSiteId(resolvedDist);
   }
-
-  endpoint = endpoint.replace(/\/+$/, '');
 
   const headers = {
     'Content-Type': 'application/json',
@@ -141,7 +224,7 @@ async function main() {
   }
 
   const manifest = {};
-  const hashToPath = new Map(); // hash -> local full path
+  const hashToPath = new Map();
 
   for (const { fullPath, relPath } of fileEntries) {
     const content = fs.readFileSync(fullPath);
@@ -169,7 +252,6 @@ async function main() {
   const missingHashes = Array.isArray(plan.missing) ? plan.missing : [];
 
   // 3. PUT /sync/blob/<hash> (8-way parallel, gzipped)
-  let uploadedBytes = 0;
   if (missingHashes.length > 0) {
     await runPool(missingHashes, 8, async (hash) => {
       const filePath = hashToPath.get(hash);
@@ -193,8 +275,6 @@ async function main() {
         const errText = await putRes.text();
         throw new Error(`Upload blob failed for ${hash} (${putRes.status}): ${errText}`);
       }
-
-      uploadedBytes += gzipped.length;
     });
   }
 

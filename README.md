@@ -12,18 +12,18 @@ Deployed to Cloudflare Workers with Browser Rendering, R2 content-addressed stor
 
 ---
 
-## Architecture
+## Architecture & Multi-Tenant Security
 
 ```
   agent (local)                      Cloudflare
   ─────────────                      ──────────
   npx webshot sync ./dist  ──────►   POST /sync/plan     ─┐
-                           ◄──────   { missing: [hash] }  │  R2: blobs/<sha256>
-                           ──────►   PUT /sync/blob/<h>   │      sites/<id>/manifest.json
+                           ◄──────   { missing: [hash] }  │  R2: blobs/<sha256> (global dedupe)
+                           ──────►   PUT /sync/blob/<h>   │      users/<userId>/sites/<id>/manifest.json
                            ──────►   POST /sync/commit   ─┘
 
   MCP client               ──────►   Worker (Streamable HTTP)
-                                       │ tool: screenshot
+                                       │ tool: screenshot (scoped to userId)
                                        ▼
                                      Browser Rendering
                                        │ every request intercepted
@@ -32,12 +32,43 @@ Deployed to Cloudflare Workers with Browser Rendering, R2 content-addressed stor
                            ◄──────   image + console errors + missing files
 ```
 
-### Constraints Satisfied
+### Multi-Tenant Isolation & Zero Trust
+- **User Scoping**: Every user receives a cryptographically signed HMAC-SHA256 JWT containing a unique `userId` (`usr_...`).
+- **Private Manifests**: Site file lists are saved under `users/<userId>/sites/<siteId>/manifest.json`. User A cannot view, query, or overwrite User B's sites.
+- **Global Blob Deduplication**: File contents are stored by SHA-256 hash in `blobs/<hash>`. Common assets (e.g. React bundles, fonts) deduplicate globally across all users without leaking file paths or site structures.
+- **No Public URLs**: Headless Chrome navigates internally to `https://webshot.local`. Requests are intercepted before DNS/TLS and fulfilled in-memory.
 
-1. **File bytes never pass through the model's context**: The sync happens out-of-band via the CLI. The model only receives structured tool results.
-2. **Nothing is publicly addressable**: Pages are never served on a public URL. Puppeteer intercepts `https://webshot.local` requests directly and fulfills them from R2 blobs before DNS resolution.
-3. **Local footprint stays trivial**: The local CLI is a zero-dependency Node script using only built-in modules (`node:crypto`, `node:fs`, `node:zlib`, `fetch`). No Chromium or Playwright on the developer machine.
-4. **Repeat syncs are near-free**: Blobs are keyed by SHA-256 content hash. Only missing hashes are uploaded. Unchanged builds upload 0 bytes.
+---
+
+## Public User Registration
+
+Anyone can register instantly with zero friction:
+
+### Via CLI:
+```bash
+# Register and save token to ~/.webshot/config.json automatically
+node ./cli/bin/webshot.mjs register
+
+# Or simply run sync directly (auto-registers on first run if needed)
+node ./cli/bin/webshot.mjs sync ./dist
+```
+
+### Via HTTP API:
+```bash
+curl -X POST https://webshot-mcp.bookis.workers.dev/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Alice"}'
+```
+
+Response:
+```json
+{
+  "success": true,
+  "userId": "usr_b836f1f4584c4841",
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6...",
+  "endpoint": "https://webshot-mcp.bookis.workers.dev"
+}
+```
 
 ---
 
@@ -61,17 +92,17 @@ Navigates to the page and returns JavaScript runtime console logs, page errors, 
 Upload your built `dist/` directory:
 
 ```bash
-# Basic usage
+# Basic usage (uses credentials saved in ~/.webshot/config.json)
 node ./cli/bin/webshot.mjs sync ./dist
 
-# Specify site ID and custom endpoint
-node ./cli/bin/webshot.mjs sync ./dist --site my-site --endpoint https://webshot-mcp.bookis.workers.dev
+# Specify site ID and custom token
+node ./cli/bin/webshot.mjs sync ./dist --site my-site --token <token>
 ```
 
 ### Environment Variables
 - `WEBSHOT_ENDPOINT`: Default server URL (defaults to `https://webshot-mcp.bookis.workers.dev`).
 - `WEBSHOT_SITE`: Custom stable site ID.
-- `WEBSHOT_TOKEN`: Optional Bearer token if server authentication is enabled.
+- `WEBSHOT_TOKEN`: Bearer token / JWT (overrides `~/.webshot/config.json`).
 
 ---
 
@@ -79,20 +110,33 @@ node ./cli/bin/webshot.mjs sync ./dist --site my-site --endpoint https://webshot
 
 ### Claude Desktop / Cursor / Antigravity
 
-Add to your MCP configuration (e.g. `claude_desktop_config.json`):
+Configure your client to include your scoped token:
 
 ```json
 {
   "mcpServers": {
     "webshot": {
-      "url": "https://webshot-mcp.bookis.workers.dev",
+      "url": "https://webshot-mcp.bookis.workers.dev/?token=YOUR_JWT_TOKEN",
       "transport": "streamable-http"
     }
   }
 }
 ```
 
-Or using an SSE / HTTP proxy or direct client connection.
+Or pass via headers:
+```json
+{
+  "mcpServers": {
+    "webshot": {
+      "url": "https://webshot-mcp.bookis.workers.dev",
+      "transport": "streamable-http",
+      "headers": {
+        "Authorization": "Bearer YOUR_JWT_TOKEN"
+      }
+    }
+  }
+}
+```
 
 ---
 
@@ -107,5 +151,6 @@ npm test
 Unit tests cover:
 - Path resolution & MIME type mapping for Vite SPAs, Astro static builds, and Next.js static exports.
 - Sync protocol endpoints (`/sync/plan`, `/sync/blob/:hash`, `/sync/commit`).
+- WebCrypto JWT signing, verification, tampering rejection, and user scoping.
 - MCP tools registration and Streamable HTTP JSON-RPC negotiation.
-- CLI argument parsing and error handling.
+- CLI argument parsing, registration, and error handling.

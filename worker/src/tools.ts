@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { Env, renderPage, loadManifest } from './render.js';
 import { listPages } from './resolve.js';
 
-export function registerTools(server: McpServer, env: Env) {
+export function registerTools(server: McpServer, env: Env, userId: string = 'default') {
   // Tool 1: screenshot
   server.tool(
     'screenshot',
@@ -30,8 +30,9 @@ export function registerTools(server: McpServer, env: Env) {
           waitFor: params.waitFor,
           format: params.format,
           quality: params.quality,
-          allowedHosts: params.allowedHosts
-        });
+          allowedHosts: params.allowedHosts,
+          userId
+        }, userId);
 
         const lines: string[] = [
           `Page: ${params.path} (Title: "${result.pageTitle || 'Untitled'}")`,
@@ -91,7 +92,7 @@ export function registerTools(server: McpServer, env: Env) {
     },
     async ({ siteId }) => {
       try {
-        const manifest = await loadManifest(env, siteId);
+        const manifest = await loadManifest(env, siteId, userId);
         if (!manifest) {
           return {
             isError: true,
@@ -154,8 +155,9 @@ export function registerTools(server: McpServer, env: Env) {
         const result = await renderPage(env, params.siteId, params.path, {
           skipScreenshot: true,
           waitFor: params.waitFor,
-          allowedHosts: params.allowedHosts
-        });
+          allowedHosts: params.allowedHosts,
+          userId
+        }, userId);
 
         const lines: string[] = [
           `Diagnostics for ${params.path} on site '${params.siteId}' (Title: "${result.pageTitle || 'Untitled'}")`,

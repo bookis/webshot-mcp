@@ -7,6 +7,7 @@ export interface Env {
   BLOBS: R2Bucket;
   MCP?: DurableObjectNamespace;
   AUTH_TOKEN?: string;
+  JWT_SECRET?: string;
 }
 
 export interface ConsoleEntry {
@@ -27,6 +28,7 @@ export interface RenderOptions {
   allowedHosts?: string[];
   skipScreenshot?: boolean;
   origin?: string; // default 'https://webshot.local'
+  userId?: string;
 }
 
 export interface RenderResult {
@@ -49,8 +51,19 @@ const DEFAULT_ALLOWED_HOSTS = new Set([
   'unpkg.com'
 ]);
 
-export async function loadManifest(env: Env, siteId: string): Promise<Record<string, string> | null> {
-  const manifestObj = await env.BLOBS.get(`sites/${siteId}/manifest.json`);
+export async function loadManifest(
+  env: Env,
+  siteId: string,
+  userId: string = 'default'
+): Promise<Record<string, string> | null> {
+  // Check user-scoped path first
+  let manifestObj = await env.BLOBS.get(`users/${userId}/sites/${siteId}/manifest.json`);
+
+  // Fallback to legacy root path for default user if not found
+  if (!manifestObj && (userId === 'default' || userId === 'admin')) {
+    manifestObj = await env.BLOBS.get(`sites/${siteId}/manifest.json`);
+  }
+
   if (!manifestObj) {
     return null;
   }
@@ -66,9 +79,10 @@ export async function renderPage(
   env: Env,
   siteId: string,
   pathname: string,
-  options: RenderOptions = {}
+  options: RenderOptions = {},
+  userId: string = options.userId || 'default'
 ): Promise<RenderResult> {
-  const manifest = await loadManifest(env, siteId);
+  const manifest = await loadManifest(env, siteId, userId);
   if (!manifest) {
     throw new Error(`Site not found: manifest for site '${siteId}' does not exist.`);
   }

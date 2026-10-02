@@ -3,7 +3,8 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { Env, renderPage } from './render.js';
 import { registerTools } from './tools.js';
-import { checkAuth, handleSyncPlan, handleSyncBlob, handleSyncCommit } from './sync.js';
+import { handleSyncPlan, handleSyncBlob, handleSyncCommit } from './sync.js';
+import { authenticate, signJwt } from './auth.js';
 
 export { Env };
 
@@ -55,10 +56,52 @@ export default {
       });
     }
 
-    // 2. Sync protocol endpoints
+    // 2. Public Registration Endpoint (POST /auth/register or POST /register)
+    if ((url.pathname === '/auth/register' || url.pathname === '/register') && request.method === 'POST') {
+      let body: any = {};
+      try {
+        body = await request.json();
+      } catch {
+        // Body is optional
+      }
+
+      const randomPart = crypto.randomUUID().replace(/-/g, '').slice(0, 16);
+      const userId = `usr_${randomPart}`;
+      const now = Math.floor(Date.now() / 1000);
+
+      // Issue long-lived token (1 year)
+      const token = await signJwt({
+        sub: userId,
+        iat: now,
+        exp: now + (365 * 24 * 60 * 60),
+        name: body.name || undefined
+      }, env.JWT_SECRET);
+
+      return withCors(new Response(JSON.stringify({
+        success: true,
+        userId,
+        token,
+        endpoint: url.origin,
+        instructions: {
+          cli: `npx webshot sync ./dist --token ${token}`,
+          mcp: {
+            url: `${url.origin}/?token=${token}`,
+            headers: {
+              Authorization: `Bearer ${token}`
+            }
+          }
+        }
+      }, null, 2), {
+        status: 201,
+        headers: { 'Content-Type': 'application/json' }
+      }));
+    }
+
+    // 3. Sync protocol endpoints
     if (url.pathname.startsWith('/sync/')) {
-      const authError = checkAuth(request, env);
-      if (authError) return withCors(authError);
+      const authResult = await authenticate(request, env);
+      if (authResult instanceof Response) return withCors(authResult);
+      const userId = authResult.userId;
 
       if (url.pathname === '/sync/plan' && request.method === 'POST') {
         const res = await handleSyncPlan(request, env);
@@ -72,7 +115,7 @@ export default {
       }
 
       if (url.pathname === '/sync/commit' && request.method === 'POST') {
-        const res = await handleSyncCommit(request, env);
+        const res = await handleSyncCommit(request, env, userId);
         return withCors(res);
       }
 
@@ -82,18 +125,20 @@ export default {
       }));
     }
 
-    // 3. Test Render endpoints (diagnostics / sanity checks)
+    // 4. Test Render endpoints (diagnostics / sanity checks)
     if (url.pathname === '/test-render') {
-      const authError = checkAuth(request, env);
-      if (authError) return withCors(authError);
+      const authResult = await authenticate(request, env);
+      if (authResult instanceof Response) return withCors(authResult);
+      const userId = authResult.userId;
 
       try {
         const siteId = url.searchParams.get('site') || 'test-site';
         const path = url.searchParams.get('path') || '/';
         const originParam = url.searchParams.get('origin') || undefined;
-        const result = await renderPage(env, siteId, path, { origin: originParam });
+        const result = await renderPage(env, siteId, path, { origin: originParam, userId }, userId);
         return withCors(new Response(JSON.stringify({
           success: true,
+          userId,
           pageTitle: result.pageTitle,
           isSecureContext: result.isSecureContext,
           console: result.console,
@@ -117,14 +162,15 @@ export default {
     }
 
     if (url.pathname === '/test-render/view') {
-      const authError = checkAuth(request, env);
-      if (authError) return withCors(authError);
+      const authResult = await authenticate(request, env);
+      if (authResult instanceof Response) return withCors(authResult);
+      const userId = authResult.userId;
 
       try {
         const siteId = url.searchParams.get('site') || 'test-site';
         const path = url.searchParams.get('path') || '/';
         const originParam = url.searchParams.get('origin') || undefined;
-        const result = await renderPage(env, siteId, path, { origin: originParam });
+        const result = await renderPage(env, siteId, path, { origin: originParam, userId }, userId);
         if (!result.screenshot) {
           return withCors(new Response('No screenshot generated', { status: 500 }));
         }
@@ -134,6 +180,7 @@ export default {
 <head><title>Render Test Result</title></head>
 <body style="font-family: sans-serif; padding: 20px;">
   <h2>Render Test Result</h2>
+  <p><strong>User:</strong> ${userId}</p>
   <p><strong>Site:</strong> ${siteId}</p>
   <p><strong>Path:</strong> ${path}</p>
   <p><strong>Page Title:</strong> ${result.pageTitle}</p>
@@ -151,13 +198,13 @@ export default {
       }
     }
 
-    // 4. Agents SDK routing for /agents/*
+    // 5. Agents SDK routing for /agents/*
     if (url.pathname.startsWith('/agents/')) {
       const agentRes = await routeAgentRequest(request, env);
       if (agentRes) return withCors(agentRes);
     }
 
-    // 5. Welcome / status page for browser visits to GET /
+    // 6. Welcome / status page for browser visits to GET /
     const accept = request.headers.get('accept') || '';
     if (
       request.method === 'GET' &&
@@ -168,6 +215,7 @@ export default {
       return withCors(new Response(
         `webshot-mcp server is running.\n\n` +
         `- Connect your MCP client to: ${url.origin}/\n` +
+        `- Public registration: POST /auth/register\n` +
         `- Sync static builds via: npx webshot sync ./dist\n` +
         `- Tools provided: screenshot, list_pages, console_log\n`,
         {
@@ -176,16 +224,17 @@ export default {
       ));
     }
 
-    // 6. MCP Streamable HTTP / SSE handling (stateless per-request)
-    const authError = checkAuth(request, env);
-    if (authError) return withCors(authError);
+    // 7. MCP Streamable HTTP / SSE handling (stateless per-request, user-scoped)
+    const authResult = await authenticate(request, env);
+    if (authResult instanceof Response) return withCors(authResult);
+    const userId = authResult.userId;
 
     try {
       const server = new McpServer({
         name: 'webshot-mcp',
         version: '0.1.0'
       });
-      registerTools(server, env);
+      registerTools(server, env, userId);
 
       const transport = new WebStandardStreamableHTTPServerTransport({
         enableJsonResponse: true

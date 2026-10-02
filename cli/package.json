@@ -1,9 +1,10 @@
 {
-  "name": "webshot",
+  "name": "webshot-mcp",
   "version": "0.1.0",
   "description": "Zero-dependency uploader for webshot-mcp",
   "bin": {
-    "webshot": "./bin/webshot.mjs"
+    "webshot": "./bin/webshot.mjs",
+    "webshot-mcp": "./bin/webshot.mjs"
   },
   "type": "module",
   "files": [
